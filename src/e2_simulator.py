@@ -54,13 +54,25 @@ class E2Simulator:
             },
             'cells': ['cell_001', 'cell_002', 'cell_003'],
             'ues': list(range(1, 21)),  # 20 UEs
+            'beams_per_cell': 8,  # Number of beams per cell (SSB Index: 0-7)
             'interval': 5  # Send indications every 5 seconds
         }
 
+        # Beam configurations per cell (SSB Index represents beamforming direction)
+        # In 5G NR, SSB indexes 0-7 represent different beamforming directions
+        self.beam_config = {
+            'cell_001': list(range(8)),  # Beams 0-7
+            'cell_002': list(range(8)),
+            'cell_003': list(range(8))
+        }
+
     def generate_kpi_indication(self) -> Dict:
-        """Generate E2SM-KPM indication with realistic KPI values"""
+        """Generate E2SM-KPM indication with realistic KPI values including beam_id"""
         cell_id = random.choice(self.config['cells'])
         ue_id = f"ue_{random.choice(self.config['ues']):03d}"
+
+        # Select a random beam for this UE (SSB Index)
+        beam_id = random.choice(self.beam_config[cell_id])
 
         # Generate realistic KPI values
         measurements = [
@@ -90,7 +102,7 @@ class E2Simulator:
             },
             {
                 'name': 'UE.RSRP',
-                'value': random.uniform(-120.0, -80.0)  # -120 to -80 dBm
+                'value': random.uniform(-120.0, -80.0)  # -120 to -80 dBm (legacy, cell-level)
             },
             {
                 'name': 'UE.RSRQ',
@@ -106,10 +118,39 @@ class E2Simulator:
             }
         ]
 
+        # Add beam-specific measurements (L1-RSRP and L1-SINR per beam)
+        # These measurements are critical for beam management in 5G NR
+        # L1-RSRP: Layer 1 Reference Signal Received Power (per beam)
+        # L1-SINR: Layer 1 Signal-to-Interference-plus-Noise Ratio (per beam)
+
+        # Generate L1-RSRP for the serving beam (typically better than cell RSRP)
+        l1_rsrp = random.uniform(-100.0, -70.0)  # Better range for beam-specific RSRP
+        # Add realistic variation based on beam quality
+        beam_quality_factor = 1.0 - (beam_id * 0.05)  # Beam 0 is typically best
+        l1_rsrp = l1_rsrp * beam_quality_factor
+
+        # Generate L1-SINR for the serving beam
+        l1_sinr = random.uniform(8.0, 30.0)  # Better range for beam-specific SINR
+        l1_sinr = l1_sinr * beam_quality_factor
+
+        measurements.extend([
+            {
+                'name': 'L1-RSRP.beam',
+                'value': l1_rsrp,
+                'beam_id': beam_id
+            },
+            {
+                'name': 'L1-SINR.beam',
+                'value': l1_sinr,
+                'beam_id': beam_id
+            }
+        ])
+
         return {
             'timestamp': datetime.now().isoformat(),
             'cell_id': cell_id,
             'ue_id': ue_id,
+            'beam_id': beam_id,  # NEW: SSB Index (0-7)
             'measurements': measurements,
             'indication_sn': int(time.time() * 1000),
             'indication_type': 'report'
@@ -218,7 +259,7 @@ class E2Simulator:
             # Generate and send KPI indications to KPIMON
             kpi_data = self.generate_kpi_indication()
             self.send_to_xapp('kpimon', kpi_data)
-            logger.info(f"Generated KPI indication for {kpi_data['cell_id']}/{kpi_data['ue_id']}")
+            logger.info(f"Generated KPI indication for {kpi_data['cell_id']}/{kpi_data['ue_id']} on beam {kpi_data['beam_id']}")
 
             # Randomly trigger handover events (30% chance)
             if random.random() < 0.3:
